@@ -10,7 +10,7 @@ import { Colors } from '../colors.js';
 import { RadioButtonSelect } from './shared/RadioButtonSelect.js';
 import { LoadedSettings, SettingScope } from '../../config/settings.js';
 import { AuthType } from '@google/gemini-cli-core';
-import { validateAuthMethod } from '../../config/auth.js';
+import { validateAuthMethod, validateOllamaAuth } from '../../config/auth.js';
 import { useKeypress } from '../hooks/useKeypress.js';
 
 interface AuthDialogProps {
@@ -52,6 +52,11 @@ export function AuthDialog({
       );
     }
 
+    // Check for Ollama environment first
+    if (process.env['GEMINI_AUTH_TYPE'] === 'ollama' || process.env['OLLAMA_HOST']) {
+      return '🦙 Ollama environment detected! Select "Use Ollama" for local AI without internet.';
+    }
+
     if (
       process.env['GEMINI_API_KEY'] &&
       (!defaultAuthType || defaultAuthType === AuthType.USE_GEMINI)
@@ -61,6 +66,10 @@ export function AuthDialog({
     return null;
   });
   const items = [
+    {
+      label: '🦙 Use Ollama (Local Models) - No Internet Required',
+      value: AuthType.USE_OLLAMA,
+    },
     {
       label: 'Login with Google - Free Tier',
       value: AuthType.LOGIN_WITH_GOOGLE,
@@ -97,21 +106,39 @@ export function AuthDialog({
       return item.value === defaultAuthType;
     }
 
+    // Check for Ollama environment
+    if (process.env['GEMINI_AUTH_TYPE'] === 'ollama' || process.env['OLLAMA_HOST']) {
+      return item.value === AuthType.USE_OLLAMA;
+    }
+
     if (process.env['GEMINI_API_KEY']) {
       return item.value === AuthType.USE_GEMINI;
     }
 
-    return item.value === AuthType.LOGIN_WITH_GOOGLE;
+    // Default to Ollama as it's local and doesn't require setup
+    return item.value === AuthType.USE_OLLAMA;
   });
 
-  const handleAuthSelect = (authMethod: AuthType) => {
-    const error = validateAuthMethod(authMethod);
-    if (error) {
-      setErrorMessage(error);
-    } else {
-      setErrorMessage(null);
-      onSelect(authMethod, SettingScope.User);
+  const handleAuthSelect = async (authMethod: AuthType) => {
+    // First do sync validation
+    const syncError = validateAuthMethod(authMethod);
+    if (syncError) {
+      setErrorMessage(syncError);
+      return;
     }
+
+    // For Ollama, do async validation
+    if (authMethod === AuthType.USE_OLLAMA) {
+      setErrorMessage('🔍 Checking Ollama connection...');
+      const ollamaError = await validateOllamaAuth();
+      if (ollamaError) {
+        setErrorMessage(ollamaError);
+        return;
+      }
+    }
+
+    setErrorMessage(null);
+    onSelect(authMethod, SettingScope.User);
   };
 
   useKeypress(

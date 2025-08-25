@@ -14,12 +14,13 @@ import {
   GoogleGenAI,
 } from '@google/genai';
 import { createCodeAssistContentGenerator } from '../code_assist/codeAssist.js';
-import { DEFAULT_GEMINI_MODEL } from '../config/models.js';
+import { DEFAULT_GEMINI_MODEL, DEFAULT_OLLAMA_MODEL } from '../config/models.js';
 import { Config } from '../config/config.js';
 
 import { UserTierId } from '../code_assist/types.js';
 import { LoggingContentGenerator } from './loggingContentGenerator.js';
 import { InstallationManager } from '../utils/installationManager.js';
+import { OllamaContentGenerator } from '../ollama/ollamaContentGenerator.js';
 
 /**
  * Interface abstracting the core functionalities for generating content and counting tokens.
@@ -48,6 +49,7 @@ export enum AuthType {
   USE_GEMINI = 'gemini-api-key',
   USE_VERTEX_AI = 'vertex-ai',
   CLOUD_SHELL = 'cloud-shell',
+  USE_OLLAMA = 'ollama',
 }
 
 export type ContentGeneratorConfig = {
@@ -56,6 +58,7 @@ export type ContentGeneratorConfig = {
   vertexai?: boolean;
   authType?: AuthType | undefined;
   proxy?: string | undefined;
+  ollamaBaseUrl?: string;
 };
 
 export function createContentGeneratorConfig(
@@ -67,8 +70,9 @@ export function createContentGeneratorConfig(
   const googleCloudProject = process.env['GOOGLE_CLOUD_PROJECT'] || undefined;
   const googleCloudLocation = process.env['GOOGLE_CLOUD_LOCATION'] || undefined;
 
-  // Use runtime model from config if available; otherwise, fall back to parameter or default
-  const effectiveModel = config.getModel() || DEFAULT_GEMINI_MODEL;
+  // Use runtime model from config if available; otherwise, fall back to parameter or auth-specific default
+  const effectiveModel = config.getModel() || 
+    (authType === AuthType.USE_OLLAMA ? DEFAULT_OLLAMA_MODEL : DEFAULT_GEMINI_MODEL);
 
   const contentGeneratorConfig: ContentGeneratorConfig = {
     model: effectiveModel,
@@ -76,12 +80,16 @@ export function createContentGeneratorConfig(
     proxy: config?.getProxy(),
   };
 
-  // If we are using Google auth or we are in Cloud Shell, there is nothing else to validate for now
+  // If we are using Google auth, Cloud Shell, or Ollama, there is nothing else to validate for now
   if (
     authType === AuthType.LOGIN_WITH_GOOGLE ||
     authType === AuthType.LOGIN_WITH_GOOGLE_GCA ||
-    authType === AuthType.CLOUD_SHELL
+    authType === AuthType.CLOUD_SHELL ||
+    authType === AuthType.USE_OLLAMA
   ) {
+    if (authType === AuthType.USE_OLLAMA) {
+      contentGeneratorConfig.ollamaBaseUrl = process.env['OLLAMA_HOST'] || 'http://localhost:11434';
+    }
     return contentGeneratorConfig;
   }
 
@@ -155,6 +163,15 @@ export async function createContentGenerator(
     });
     return new LoggingContentGenerator(googleGenAI.models, gcConfig);
   }
+
+  if (config.authType === AuthType.USE_OLLAMA) {
+    const ollamaGenerator = new OllamaContentGenerator({
+      baseUrl: config.ollamaBaseUrl,
+      defaultModel: config.model,
+    });
+    return new LoggingContentGenerator(ollamaGenerator, gcConfig);
+  }
+
   throw new Error(
     `Error creating contentGenerator: Unsupported authType: ${config.authType}`,
   );

@@ -10,6 +10,8 @@ export {
   DEFAULT_GEMINI_FLASH_MODEL,
   DEFAULT_GEMINI_FLASH_LITE_MODEL,
   DEFAULT_GEMINI_EMBEDDING_MODEL,
+  DEFAULT_OLLAMA_MODEL,
+  DEFAULT_OLLAMA_EMBEDDING_MODEL,
 } from './src/config/models.js';
 export { logIdeConnection } from './src/telemetry/loggers.js';
 export {
